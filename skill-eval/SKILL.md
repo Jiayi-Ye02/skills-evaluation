@@ -230,11 +230,4 @@ Examples:
 
 ## Evidence Rules
 
-Apply the repo evidence rules from `agentic-evals/AGENT.md`.
-
-Additional operational rules for this skill:
-
-- Prefer accepted fresh-agent traces over evaluator-side inference.
-- Static reads by the evaluator are allowed for loading the repo contract, understanding a case, understanding the target skill after the fresh-agent run, and mapping failures to likely fix files.
-- Static reads by the evaluator are not enough on their own to mark a dynamic case `pass` when a fresh-agent run was available.
-- Invalid attempts can explain `notes`, but they cannot satisfy assertions or justify a `pass`.
+Apply the repo evidence policy from `agentic-evals/AGENT.md`.
