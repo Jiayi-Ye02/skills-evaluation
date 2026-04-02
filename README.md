@@ -4,19 +4,11 @@ Open Agent Skills repository for the `skill-eval` skill.
 
 ## Install
 
-List available skills:
+Install `skill-eval` with following command:
 
 ```bash
-npx skills add Jiayi-Ye02/skills-evaluation --list
+npx skills add Jiayi-Ye02/skills-evaluation --skill skill-eval
 ```
-
-Install `skill-eval` globally:
-
-```bash
-npx skills add Jiayi-Ye02/skills-evaluation --skill skill-eval -g -y
-```
-
-After installing, restart Codex to pick up the new skill.
 
 ## Included skill
 
