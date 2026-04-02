@@ -26,8 +26,6 @@ Install `skill-eval` with:
 npx skills add Jiayi-Ye02/skills-evaluation --skill skill-eval
 ```
 
-## Included Skill
-
 - `skill-eval`: runs the `agentic-evals` evaluation repo against a target skill,
   collects per-case results, and writes a short report
 
@@ -63,13 +61,6 @@ Your workspace will normally look like this:
 └── agentic-evals/
 ```
 
-If you do not pass a test repo path, `skill-eval` should first look for a local
-`agentic-evals/` folder and clone the default repo only if it is missing.
-
-Default repo:
-
-- clone URL: `https://github.com/Jiayi-Ye02/agentic-evals.git`
-
 ## Requirements
 
 - Codex with `spawn_agent` available
@@ -80,9 +71,7 @@ Default repo:
 
 ## Quickstart
 
-Once you have workspace prepared, ask Codex in plain language to use `skill-eval`.
-
-Examples:
+Once you have workspace prepared, ask Codex in plain language to use `skill-eval`. For example::
 
 Single case:
 
@@ -107,9 +96,6 @@ Chinese example:
 ```text
 用 skill-eval 去测试 target_id=voice-ai-integration，测试范围 case_id=convoai-phase1-only-before-gates
 ```
-
-You do not need to manually create `runs/` folders or temp workspaces yourself.
-That is the evaluator's job.
 
 ## 5-Minute Mental Model
 
