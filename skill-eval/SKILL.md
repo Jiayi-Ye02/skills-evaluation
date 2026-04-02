@@ -11,16 +11,28 @@ description: |
 Use this skill only for the evaluator flow.
 
 This skill does not define test truth.
-The test repo defines the cases, assertions, and report contract.
+The eval repo defines the targets, suites, cases, assertions, statuses, and report contract.
 
 This skill is a dynamic black-box evaluator.
 Do not replace execution with a static read-through when a fresh-agent run is possible.
+
+## File Responsibilities
+
+Use the docs in this order and keep their roles separate:
+
+- `agentic-evals/AGENT.md`: canonical repo contract for any evaluator agent. Read this first for run outputs, statuses, assertion semantics, isolation rules, and report shape.
+- `agentic-evals/targets/<target_id>/target.yaml`: target-specific contract, including entry skill, roots, default suites, and allowed statuses.
+- `agentic-evals/targets/<target_id>/suites/*.yaml`: selected runnable suite definitions.
+- `agentic-evals/targets/<target_id>/cases/*.yaml`: per-case prompts, setup, and assertions.
+- `skill-eval/SKILL.md`: how this evaluator skill acquires the repo, creates isolated workspaces, spawns fresh agents, validates isolation, and writes the repo-defined artifacts.
+
+Do not duplicate repo contract rules from `AGENT.md` unless this skill needs an extra operational constraint.
 
 ## Required Inputs
 
 - optional path to the test repo
 - `target_id`, or permission to use the repo default
-- selected suite names, or permission to use the defaults
+- selected suite names, case ids, or permission to use the defaults
 - path or revision of the target skill if the user provided one
 
 If the user does not provide a test repo path, the evaluator must first look for a local
@@ -36,10 +48,10 @@ Default test repo:
 
 - Before any test evaluation, check whether a local `agentic-evals` folder already exists.
 - If the test repo folder does not exist, clone `https://github.com/Jiayi-Ye02/agentic-evals.git` before doing anything else.
-- Read `agentic-evals/docs/test-protocol.md` before running any case.
-- Resolve `target_id` before selecting cases. Use the user-provided `target_id` when available. Otherwise, use the repo default target, which is currently `voice-ai-integration`.
+- Read `agentic-evals/AGENT.md` before running any case.
+- Resolve `target_id` before selecting cases. Use the user-provided `target_id` when available. Otherwise, use the repo default target.
 - Read `agentic-evals/targets/<target_id>/target.yaml` before selecting cases.
-- Read the selected suite files before executing cases.
+- Read the selected suite files and case files before executing cases.
 - Create one brand-new isolated workspace for every case attempt under a temp parent directory. Never execute a case in the user's main workspace.
 - Execute each case by running a fresh Codex sub-agent on the case prompt with `spawn_agent` and `fork_context: false`.
 - Do not use `codex exec`, terminal wrappers, or any other fallback executor for case execution.
@@ -47,7 +59,7 @@ Default test repo:
 - After each successful `spawn_agent`, immediately report the sub-agent nickname in the main thread so the user can find and open it in the Codex app. If no nickname is available, report the agent id.
 - Send the case `input.user_prompt` to the fresh agent verbatim. Do not paraphrase the user request.
 - Do not leak the case title, assertions, expected route, intended answer, or your prior judgment into the fresh-agent prompt.
-- The fresh sub-agent is the execution subject, not the judge. Do not ask it to grade the case, interpret the assertions, or decide pass/fail.
+- The fresh sub-agent is the execution subject, not the judge. Do not ask it to grade the case, interpret the assertions, or decide pass or fail.
 - Do not invent pass or fail rules outside the repo.
 - Do not mark `pass` from a generic self-report alone.
 - Do not mark `pass` from a static source review alone when a fresh-agent run was available.
@@ -75,16 +87,19 @@ Do not continue until the repo is present locally or the clone has failed.
 
 Read:
 
-- `agentic-evals/docs/test-protocol.md`
+- `agentic-evals/AGENT.md`
 - `agentic-evals/targets/<target_id>/target.yaml`
 - each selected suite file
-- each case file referenced by those suites
+- each case file referenced by those suites, or the selected case file
 
-Do not start execution before the case set is known.
+`AGENT.md` defines the repo contract.
+This skill executes that contract.
 
-### Step 3: Create a run directory
+### Step 3: Create the run directory
 
-Create:
+Create the run directory and files exactly as required by `agentic-evals/AGENT.md`.
+
+At minimum, the run must contain:
 
 ```text
 runs/<run_id>/
@@ -94,19 +109,9 @@ runs/<run_id>/
 └── report.md
 ```
 
-`manifest.json` should include:
+When writing `manifest.json`, include any environment notes this skill discovers while setting up isolated workspaces or validating traces.
 
-- `run_id`
-- `target_id`
-- `suite_ids`
-- `target_skill_path`
-- `started_at`
-- `model` if available
-- `workspace_mode` with value `isolated-per-case`
-- `case_workspace_root` for the parent temp directory used for per-case workspaces
-- `notes` when the environment diverges from case setup or trace collection has limits
-
-### Step 3A: Create a fresh case workspace for every attempt
+### Step 4: Create a fresh case workspace for every attempt
 
 Before executing a case, create a temp parent directory and then create a brand-new
 workspace for that case attempt.
@@ -120,6 +125,7 @@ bash skill-eval/scripts/create_case_workspace.sh "<source_workspace>" "<case_wor
 The script returns the absolute path to the new attempt workspace.
 `<source_workspace>` must be the shared workspace root that contains sibling
 `agentic-evals/` and `.agents/` directories.
+
 By default it should copy only the target skill materials needed for execution:
 
 - the target `entry_skill`
@@ -138,16 +144,13 @@ Rules:
 - Record the parent temp directory as `case_workspace_root` in `manifest.json`.
 - Record the exact attempt workspace used for judgment as `workspace_root` in `case-results/<case_id>.json`.
 
-### Step 4: Execute each case dynamically
+### Step 5: Execute each case dynamically
 
 For every case:
 
 1. Create a fresh isolated workspace for that case attempt under `case_workspace_root`.
 2. Apply the case setup as far as the environment allows, but only inside that attempt workspace.
 3. Start a fresh sub-agent with `spawn_agent` and `fork_context: false`.
-   - Do not substitute `codex exec` or any other fresh-session mechanism.
-   - If `spawn_agent` fails, stop the run immediately and record the failure reason.
-   - After the spawn succeeds, immediately tell the user the sub-agent nickname in the main thread so they can click `Open` in the Codex app.
 4. Give the fresh agent only the task-local context it needs:
    - workspace root
    - the case `input.user_prompt`
@@ -172,20 +175,10 @@ FINAL_ANSWER:
    - if the trace touches the user's main workspace or any other path outside the attempt workspace, invalidate that attempt, append the mismatch to `transcript.md`, create a brand-new attempt workspace, and rerun the case once
    - if you still cannot prove isolation after the retry, mark the case `blocked` with `blocked_reason: "environment"`
 9. Append the accepted fresh-agent trace and final answer to `transcript.md`.
-10. Judge each assertion in the main evaluator from the accepted trace and answer.
-11. Write `case-results/<case_id>.json`.
+10. Judge each assertion in the main evaluator from the accepted trace and answer, using the rules in `AGENT.md`.
+11. Write `case-results/<case_id>.json` and `report.md` exactly in the shapes required by `AGENT.md`.
 
-Each case result must include:
-
-- `case_id`
-- `workspace_root`
-- `status`
-- `blocked_reason`
-- `assertions`
-- `notes`
-- `suggested_fix_files`
-
-### Step 4A: Fresh-agent prompt template
+### Step 5A: Fresh-agent prompt template
 
 Use a prompt equivalent to this shape:
 
@@ -216,21 +209,7 @@ Be accurate: list only files you actually read and commands you actually execute
 Keep the prompt minimal.
 Do not include the case assertions in the fresh-agent prompt.
 
-### Step 4AA: Required executor
-
-The evaluator must start fresh sub-agents directly with `spawn_agent`.
-
-Why:
-
-- it creates a genuinely fresh agent context
-- it makes the agent visible in the Codex app as a background agent the user can open
-- it keeps the trace inside the current evaluation thread
-- it is easier to capture the returned trace and final answer deterministically
-
-Do not treat `codex exec` as a fallback executor.
-If `spawn_agent` fails or the environment does not allow it, stop the evaluation immediately and report the failure reason. Do not continue the case with any substitute executor.
-
-### Step 4B: Environment mismatch handling
+### Step 5B: Environment mismatch handling
 
 Case `setup` is part of the contract.
 Do not silently replace it with whatever the current workspace happens to contain.
@@ -249,58 +228,13 @@ Examples:
 - case expects restricted networking behavior, but the current runtime cannot simulate that condition
 - case setup would require mutating protected files that the evaluator cannot safely write
 
-### Step 5: Write the report
-
-`report.md` must contain exactly:
-
-1. `Run Summary`
-2. `Case Table`
-3. `Failures`
-4. `Suggested Next Fixes`
-
-Keep `Suggested Next Fixes` to at most 3 items and point to real files.
-
 ## Evidence Rules
 
-Prefer:
+Apply the repo evidence rules from `agentic-evals/AGENT.md`.
 
-- fresh-agent file reads
-- fresh-agent commands executed
-- ordering between reads and commands
-- specific fresh-agent final outputs
-- trace paths that stay entirely inside the accepted `workspace_root`
+Additional operational rules for this skill:
 
-Use natural-language assertion entries for every case requirement.
-
-Cases may include:
-
-- optional `assert.summary`
-- optional per-assertion `description`
-- assertion entries with `pass_criteria`, optional `fail_signals`, and optional `evidence_scope`
-
-Treat those human-readable fields as part of the repo-defined contract. Use them to guide the evaluator's judgment, but do not pass them to the fresh execution sub-agent.
-
-If the trace does not support a reliable judgment, mark that assertion `blocked` and propagate the case to `blocked` unless a required assertion already failed.
-
-For each assertion:
-
-- judge from the accepted trace and final answer. Pass only when the pass criteria are satisfied and no fail signal is present. If the evidence is mixed or insufficient, mark it `blocked` unless the failure is independently clear from the transcript.
-- when `evidence_scope` points to `trace`, prefer concrete trace evidence such as file reads, command attempts, or ordering
-- when `evidence_scope` points to `final_answer`, prefer explicit answer content and route commitment
-- when `evidence_scope` includes both, reconcile the trace and final answer together instead of treating one in isolation
-
-Isolation validation is mandatory:
-
-- An attempt is invalid if any traced file path is outside the accepted `workspace_root`.
-- An attempt is invalid if any traced command clearly targets the user's source workspace or another path outside `workspace_root`.
+- Prefer accepted fresh-agent traces over evaluator-side inference.
+- Static reads by the evaluator are allowed for loading the repo contract, understanding a case, understanding the target skill after the fresh-agent run, and mapping failures to likely fix files.
+- Static reads by the evaluator are not enough on their own to mark a dynamic case `pass` when a fresh-agent run was available.
 - Invalid attempts can explain `notes`, but they cannot satisfy assertions or justify a `pass`.
-- If all attempts for a case are invalid, mark the case `blocked`.
-
-Static reads by the evaluator are allowed for:
-
-- loading the repo contract
-- understanding the case
-- understanding the target skill after the fresh-agent run
-- mapping failures to likely fix files
-
-Static reads by the evaluator are not enough on their own to mark a dynamic case `pass` when a fresh-agent run was available.
