@@ -1,30 +1,163 @@
 # skills-evaluation
 
-Open Agent Skills repository for the `skill-eval` skill.
+`skill-eval` skill is the runner for the `agentic-evals` protocol.
+It does not define what is correct to test. The `agentic-evals` repo defines targets,
+suites, cases, assertions, and output format.
+
+If you only remember one thing, remember this:
+
+`agentic-evals` defines what to test, `skill-eval` runs the test, and a fresh Codex
+sub-agent is the thing being judged.
+
+## Skill Repo Layout
+
+```text
+README.md
+skill-eval/
+├── SKILL.md
+└── scripts/
+```
 
 ## Install
 
-Install `skill-eval` with following command:
+Install `skill-eval` with:
 
 ```bash
 npx skills add Jiayi-Ye02/skills-evaluation --skill skill-eval
 ```
 
-## Included skill
+## Included Skill
 
-- `skill-eval`: Runs the `agentic-evals` evaluation repo against a target skill, collects case results, and writes a short report.
+- `skill-eval`: runs the `agentic-evals` evaluation repo against a target skill,
+  collects per-case results, and writes a short report
+
+## Framework Structure
+
+In a normal run there are 4 separate roles:
+
+1. `agentic-evals/`
+   The test repo and source of truth for targets, suites, cases, assertions, and report contract.
+2. `skill-eval`
+   The evaluator skill that executes the repo-defined protocol.
+3. target skill
+   The skill under test, for example `.agents/skills/<target-skill>/`.
+4. fresh Codex sub-agent
+   The execution subject that receives the case prompt and produces the trace and answer to judge.
+
+That separation matters:
+
+- the test repo decides pass/fail rules
+- the evaluator runs the process
+- the fresh sub-agent is what actually gets tested
+
+### Expected Workspace Layout
+
+Your workspace will normally look like this:
+
+```text
+<workspace>/
+├── .agents/
+│   └── skills/
+│       ├── skill-eval/
+│       └── <target-skill>/
+└── agentic-evals/
+```
+
+If you do not pass a test repo path, `skill-eval` should first look for a local
+`agentic-evals/` folder and clone the default repo only if it is missing.
+
+Default repo:
+
+- clone URL: `https://github.com/Jiayi-Ye02/agentic-evals.git`
 
 ## Requirements
 
 - Codex with `spawn_agent` available
 - `git`
 - `bash`
-- Network access if `agentic-evals` needs to be cloned
+- local target skill files
+- local `agentic-evals` repo, or network access so it can be cloned if missing
 
-## Repo layout
+## Quickstart
+
+Once you have workspace prepared, ask Codex in plain language to use `skill-eval`.
+
+Examples:
+
+Single case:
 
 ```text
-skill-eval/
-  SKILL.md
-  scripts/
+Use skill-eval to test target_id=voice-ai-integration, case_id=convoai-phase1-only-before-gates.
 ```
+
+Single suite:
+
+```text
+Use skill-eval to test target_id=voice-ai-integration, suite=source-order.
+```
+
+Default target with default suites:
+
+```text
+Use skill-eval to run the default target with its default suites.
+```
+
+Chinese example:
+
+```text
+用 skill-eval 去测试 target_id=voice-ai-integration，测试范围 case_id=convoai-phase1-only-before-gates
+```
+
+You do not need to manually create `runs/` folders or temp workspaces yourself.
+That is the evaluator's job.
+
+## 5-Minute Mental Model
+
+When you ask Codex to run an eval, the expected flow is:
+
+1. Codex uses `skill-eval`.
+2. `skill-eval` reads `agentic-evals/docs/test-protocol.md`.
+3. It resolves the target from `agentic-evals/targets/<target_id>/target.yaml`.
+4. It reads the selected suite and case files from `agentic-evals/targets/<target_id>/`.
+5. It creates a new run directory under `runs/<run_id>/`.
+6. For each case, it creates a brand-new isolated temp workspace.
+7. It spawns a fresh sub-agent for that case.
+8. The fresh sub-agent returns:
+   - files it read
+   - commands it ran
+   - the final user-facing answer
+9. The evaluator validates isolation and judges the assertions.
+10. The evaluator writes final artifacts.
+
+## What To Expect During A Run
+
+During execution, the evaluator should:
+
+- report which target, suite, or case it is using
+- create a fresh case workspace under a temp directory
+- spawn a fresh sub-agent for the case
+- tell you the sub-agent nickname or id so you can open it in the Codex app
+- write artifacts under `runs/<run_id>/`
+
+The evaluator should not:
+
+- run the case directly in your main workspace
+- silently replace the fresh sub-agent with a fallback executor
+- mark `pass` from a vague self-report alone
+
+## Run Artifacts
+
+Every run should create:
+
+```text
+runs/<run_id>/
+├── manifest.json
+├── transcript.md
+├── case-results/
+└── report.md
+```
+
+- `report.md`: short summary and next actions
+- `case-results/<case_id>.json`: official status for one case
+- `transcript.md`: accepted trace and final answer used for judgment
+- `manifest.json`: run metadata, workspace mode, and environment mismatch notes
