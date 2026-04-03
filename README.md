@@ -13,6 +13,10 @@ sub-agent is the thing being judged.
 
 ```text
 README.md
+agentic-evals/
+├── AGENT.md
+├── docs/
+└── targets/
 skill-eval/
 ├── SKILL.md
 └── scripts/
@@ -56,9 +60,9 @@ Your workspace will normally look like this:
 <workspace>/
 ├── .agents/
 │   └── skills/
-│       ├── skill-eval/
 │       └── <target-skill>/
-└── agentic-evals/
+├── agentic-evals/
+└── skill-eval/
 ```
 
 ## Requirements
@@ -102,18 +106,15 @@ Chinese example:
 When you ask Codex to run an eval, the expected flow is:
 
 1. Codex uses `skill-eval`.
-2. `skill-eval` reads `agentic-evals/docs/test-protocol.md`.
+2. `skill-eval` reads `agentic-evals/AGENT.md` and `agentic-evals/docs/session-evidence.md`.
 3. It resolves the target from `agentic-evals/targets/<target_id>/target.yaml`.
 4. It reads the selected suite and case files from `agentic-evals/targets/<target_id>/`.
-5. It creates a new run directory under `runs/<run_id>/`.
+5. It creates a new run directory under `agentic-evals/runs/<run_id>/`.
 6. For each case, it creates a brand-new isolated temp workspace.
 7. It spawns a fresh sub-agent for that case.
-8. The fresh sub-agent returns:
-   - files it read
-   - commands it ran
-   - the final user-facing answer
-9. The evaluator validates isolation and judges the assertions.
-10. The evaluator writes final artifacts.
+8. The evaluator copies the accepted child session and extracts the final user-facing answer.
+9. The evaluator validates isolation and judges the assertions from the accepted child session evidence.
+10. The evaluator writes final artifacts under `agentic-evals/runs/<run_id>/`.
 
 ## What To Expect During A Run
 
@@ -123,7 +124,7 @@ During execution, the evaluator should:
 - create a fresh case workspace under a temp directory
 - spawn a fresh sub-agent for the case
 - tell you the sub-agent nickname or id so you can open it in the Codex app
-- write artifacts under `runs/<run_id>/`
+- write artifacts under `agentic-evals/runs/<run_id>/`
 
 The evaluator should not:
 
@@ -136,8 +137,9 @@ The evaluator should not:
 Every run should create:
 
 ```text
-runs/<run_id>/
+agentic-evals/runs/<run_id>/
 ├── manifest.json
+├── case-artifacts/
 ├── transcript.md
 ├── case-results/
 └── report.md
@@ -145,5 +147,5 @@ runs/<run_id>/
 
 - `report.md`: short summary and next actions
 - `case-results/<case_id>.json`: official status for one case
-- `transcript.md`: accepted trace and final answer used for judgment
+- `transcript.md`: readable transcript rendered from accepted child session evidence
 - `manifest.json`: run metadata, workspace mode, and environment mismatch notes
