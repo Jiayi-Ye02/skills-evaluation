@@ -174,9 +174,13 @@ For every case:
 11. Copy the accepted child session to `case-artifacts/<case_id>/accepted-session.jsonl`.
 12. Extract the accepted final answer and save it to `case-artifacts/<case_id>/final-answer.txt`.
 13. Validate observed isolation before judging:
-   - observed `cwd` values must be inside the attempt workspace
+   - treat per-tool `workdir` values, resolved read and write paths, and command-derived cwd outputs such as `pwd` as the authoritative isolation signals
+   - for Codex `spawn_agent`, treat child `session_meta.cwd` as advisory only, because spawned child-thread metadata may inherit the parent workspace cwd
+   - observed per-tool `workdir` values must be inside the attempt workspace
    - observed read and write paths must be inside the attempt workspace
-   - if the accepted session evidence shows access to the user's main workspace or any other path outside the attempt workspace, invalidate that attempt, append the mismatch to `transcript.md`, create a brand-new attempt workspace, and rerun the case once
+   - if a command such as `pwd` prints a cwd, that observed cwd must be inside the attempt workspace
+   - if the accepted session evidence shows an observed tool workdir, resolved path, or command-derived cwd outside the attempt workspace, invalidate that attempt, append the mismatch to `transcript.md`, create a brand-new attempt workspace, and rerun the case once
+   - if no reliable tool workdir, resolved path, or command-derived cwd can be observed, mark the case `blocked`
    - if the accepted session cannot support reliable isolation after the retry, mark the case `blocked`
 14. Render `transcript.md` directly from the accepted child session evidence in event order.
 15. Judge each assertion in the main evaluator from the accepted session evidence and accepted final answer, using the rules in `AGENT.md`.
