@@ -35,6 +35,8 @@ Do not duplicate repo contract rules from `AGENT.md` unless this skill needs an 
 - `target_id`, or permission to use the repo default
 - selected suite names, case ids, or permission to use the defaults
 - path or revision of the target skill if the user provided one
+- optional run mode: `single-run` or `ab-urls`
+- for `ab-urls`: `variant_a_url` and `variant_b_url`, both GitHub HTTP URLs to the target skill version
 
 If the user does not provide a test repo path, the evaluator must first look for a local
 `agentic-evals` folder in the current workspace and clone the default repo only if that
@@ -44,6 +46,11 @@ Default test repo:
 
 - folder name: `agentic-evals`
 - clone URL: `https://github.com/Jiayi-Ye02/agentic-evals.git`
+
+For `ab-urls`, recommended variant URL formats are:
+
+- `https://github.com/<org>/<repo>/tree/<ref>/<skill-dir>`
+- `https://github.com/<org>/<repo>/blob/<ref>/<skill-dir>/SKILL.md`
 
 ## Non-Negotiables
 
@@ -69,6 +76,8 @@ Default test repo:
 - Treat any attempt that observably reads or executes outside its case workspace as invalid evidence. Do not judge the case from that attempt.
 - If a case cannot be judged reliably, mark it `blocked`.
 - On clone failure, report the error and stop. Do not silently continue without the test repo.
+- In `ab-urls` mode, do not mutate or swap the user's local target skill tree. Prepare one isolated source workspace per variant URL.
+- In `ab-urls` mode, compare only the same selected case set across A and B.
 
 ## Workflow
 
@@ -116,6 +125,43 @@ runs/<run_id>/
 
 When writing `manifest.json`, include any environment notes this skill discovers while setting up isolated workspaces or locating accepted child sessions.
 
+For `ab-urls`, initialize the parent run with:
+
+```bash
+python3 skill-eval/scripts/init_ab_run.py "<source_workspace>" "<target_id>" "<variant_a_url>" "<variant_b_url>" [--suite-id <suite_id>] [--case-id <case_id>]
+```
+
+This creates:
+
+- parent `runs/<ab_run_id>/manifest.json`
+- `variants/A/run/`
+- `variants/B/run/`
+- optional `variants/A/source-manifest.json`
+- optional `variants/B/source-manifest.json`
+
+Each `variants/<label>/run/` directory must later satisfy the normal `single-run` artifact contract.
+
+### Step 3A: Resolve A/B variant sources
+
+In `ab-urls` mode:
+
+1. Parse each GitHub URL with `skill-eval/scripts/parse_github_skill_url.py`.
+2. Prepare one isolated source workspace per variant with `skill-eval/scripts/prepare_variant_source_workspace.py`.
+3. Record the prepared source workspace and normalized URL interpretation in `variants/<label>/source-manifest.json`.
+
+Each prepared source workspace must contain:
+
+```text
+<prepared-source>/
+├── agentic-evals/
+└── .agents/
+    └── skills/
+        └── <target_id>/
+```
+
+The local `agentic-evals/` repo stays the source of truth.
+Only the target skill directory varies between A and B.
+
 ### Step 4: Create a fresh case workspace for every attempt
 
 Before executing a case, create a temp parent directory and then create a brand-new
@@ -148,6 +194,8 @@ Rules:
 - Resolve repo-defined files from `<source_workspace>/agentic-evals/` and target skill files from `<source_workspace>/.agents/`.
 - Record the parent temp directory as `case_workspace_root` in `manifest.json`.
 - Record the exact attempt workspace used for judgment as `workspace_root` in `case-results/<case_id>.json`.
+
+In `ab-urls` mode, do this separately inside each variant run using that variant's prepared source workspace.
 
 ### Step 5: Execute each case dynamically
 
@@ -185,6 +233,20 @@ For every case:
 14. Render `transcript.md` directly from the accepted child session evidence in event order.
 15. Judge each assertion in the main evaluator from the accepted session evidence and accepted final answer, using the rules in `AGENT.md`.
 16. Write `case-results/<case_id>.json` and `report.md` exactly in the shapes required by `AGENT.md`.
+
+In `ab-urls` mode:
+
+1. Run the full normal case flow for variant A under `variants/A/run/`.
+2. Run the full normal case flow for variant B under `variants/B/run/`.
+3. Do not compare A and B until both variant runs have written their `case-results/`.
+4. Render the parent comparison artifacts with:
+
+```bash
+python3 skill-eval/scripts/render_ab_report.py "<ab_run_dir>" --target-id "<target_id>" --label-a "A" --label-b "B" --variant-a-url "<variant_a_url>" --variant-b-url "<variant_b_url>"
+```
+
+The parent comparison report is derived only from the two variant runs.
+It does not replace the variant-level case judgments.
 
 ### Step 5A: Fresh-agent prompt template
 

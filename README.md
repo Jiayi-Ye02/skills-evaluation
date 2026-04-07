@@ -33,6 +33,11 @@ npx skills add Jiayi-Ye02/skills-evaluation --skill skill-eval
 - `skill-eval`: runs the `agentic-evals` evaluation repo against a target skill,
   collects per-case results, and writes a short report
 
+It now supports:
+
+- `single-run`: one target skill version
+- `ab-urls`: two target skill versions supplied as GitHub HTTP URLs
+
 ## Framework Structure
 
 In a normal run there are 4 separate roles:
@@ -101,6 +106,24 @@ Chinese example:
 用 skill-eval 去测试 target_id=voice-ai-integration，测试范围 case_id=convoai-phase1-only-before-gates
 ```
 
+A/B URL mode:
+
+```text
+Use skill-eval in ab-urls mode for target_id=voice-ai-integration.
+variant_a_url=https://github.com/org/repo/tree/main/.agents/skills/voice-ai-integration
+variant_b_url=https://github.com/org/repo/tree/rewrite/.agents/skills/voice-ai-integration
+case_id=auth-prefers-rtc-token
+```
+
+Chinese A/B example:
+
+```text
+用 skill-eval 以 ab-urls 模式测试 target_id=voice-ai-integration。
+variant_a_url=https://github.com/org/repo/tree/main/.agents/skills/voice-ai-integration
+variant_b_url=https://github.com/org/repo/tree/rewrite/.agents/skills/voice-ai-integration
+suite_id=convoai-api
+```
+
 ## 5-Minute Mental Model
 
 When you ask Codex to run an eval, the expected flow is:
@@ -115,6 +138,8 @@ When you ask Codex to run an eval, the expected flow is:
 8. The evaluator copies the accepted child session and extracts the final user-facing answer.
 9. The evaluator validates isolation and judges the assertions from the accepted child session evidence.
 10. The evaluator writes final artifacts under `agentic-evals/runs/<run_id>/`.
+
+In `ab-urls` mode, steps 6-10 happen twice, once for A and once for B, and then the evaluator writes a parent comparison report.
 
 ## What To Expect During A Run
 
@@ -149,3 +174,26 @@ agentic-evals/runs/<run_id>/
 - `case-results/<case_id>.json`: official status for one case
 - `transcript.md`: readable transcript rendered from accepted child session evidence
 - `manifest.json`: run metadata, workspace mode, and environment mismatch notes
+
+In `ab-urls` mode the parent run additionally contains:
+
+```text
+agentic-evals/runs/<ab_run_id>/
+├── manifest.json
+├── variants/
+│   ├── A/
+│   │   ├── source-manifest.json
+│   │   └── run/
+│   └── B/
+│       ├── source-manifest.json
+│       └── run/
+├── comparison.json
+└── report.md
+```
+
+Helper scripts for this mode:
+
+- `skill-eval/scripts/parse_github_skill_url.py`
+- `skill-eval/scripts/prepare_variant_source_workspace.py`
+- `skill-eval/scripts/init_ab_run.py`
+- `skill-eval/scripts/render_ab_report.py`

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Initialize single-run or A/B run scaffolds for skill-eval."""
+"""Initialize an A/B evaluation run driven by two GitHub skill URLs."""
 
 from __future__ import annotations
 
@@ -14,32 +14,25 @@ from pathlib import Path
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-DEFAULT_TARGET_ID = "voice-ai-integration"
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Initialize skill-eval run directories for single-run or ab-urls mode."
-    )
+    parser = argparse.ArgumentParser(description="Initialize an ab-urls evaluation run.")
     parser.add_argument("root", nargs="?", default=".", help="Workspace root that contains agentic-evals/")
-    parser.add_argument("target_id", nargs="?", default=DEFAULT_TARGET_ID)
-    parser.add_argument("--mode", choices=["single-run", "ab-urls"], default="single-run")
-    parser.add_argument("--suite-id", dest="suite_ids", action="append", default=[])
-    parser.add_argument("--case-id", dest="case_ids", action="append", default=[])
-    parser.add_argument("--variant-a-url")
-    parser.add_argument("--variant-b-url")
+    parser.add_argument("target_id", help="Target skill id under evaluation")
+    parser.add_argument("variant_a_url", help="GitHub HTTP URL for variant A")
+    parser.add_argument("variant_b_url", help="GitHub HTTP URL for variant B")
     parser.add_argument("--label-a", default="A")
     parser.add_argument("--label-b", default="B")
+    parser.add_argument("--suite-id", dest="suite_ids", action="append", default=[])
+    parser.add_argument("--case-id", dest="case_ids", action="append", default=[])
     parser.add_argument("--skip-prepare-variants", action="store_true")
     return parser.parse_args()
 
 
-def timestamp() -> str:
-    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-
-
 def run_id() -> str:
-    return f"{timestamp()}-{uuid.uuid4().hex[:8]}"
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return f"{timestamp}-{uuid.uuid4().hex[:8]}"
 
 
 def ensure_single_run_dirs(run_dir: Path) -> None:
@@ -51,30 +44,6 @@ def ensure_single_run_dirs(run_dir: Path) -> None:
 def write_json(path: Path, payload: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-
-
-def init_single_run_manifest(
-    run_id_value: str,
-    target_id: str,
-    case_root: Path,
-    suite_ids: list[str],
-    case_ids: list[str],
-) -> dict:
-    return {
-        "run_mode": "single-run",
-        "run_id": run_id_value,
-        "target_id": target_id,
-        "suite_ids": suite_ids,
-        "selected_case_ids": case_ids,
-        "target_skill_path": f".agents/skills/{target_id}/SKILL.md",
-        "started_at": datetime.now(timezone.utc).isoformat(),
-        "workspace_mode": "isolated-per-case",
-        "case_workspace_root": str(case_root),
-        "evidence_mode": "codex-local-session-store",
-        "notes": [
-            "Use this scaffold with spawn_agent plus local Codex session evidence."
-        ],
-    }
 
 
 def init_variant_run_manifest(
@@ -124,33 +93,16 @@ def prepare_variant(root: Path, target_id: str, url: str, temp_root: Path, label
     return json.loads(proc.stdout)
 
 
-def init_single_run(args: argparse.Namespace, root: Path) -> dict:
-    current_run_id = run_id()
-    run_dir = root / "agentic-evals" / "runs" / current_run_id
-    case_root = Path(tempfile.mkdtemp(prefix=f"openclaw-skill-eval-{args.target_id}-"))
-    ensure_single_run_dirs(run_dir)
-    manifest = init_single_run_manifest(
-        current_run_id, args.target_id, case_root, args.suite_ids, args.case_ids
-    )
-    write_json(run_dir / "manifest.json", manifest)
-    return {
-        "run_mode": "single-run",
-        "run_id": current_run_id,
-        "run_dir": str(run_dir),
-        "case_workspace_root": str(case_root),
-        "next_step": "For each selected case, call create_case_workspace.sh then execute via spawn_agent and inspect the accepted child session.",
-    }
-
-
-def init_ab_run(args: argparse.Namespace, root: Path) -> dict:
-    if not args.variant_a_url or not args.variant_b_url:
-        raise SystemExit("ab-urls mode requires --variant-a-url and --variant-b-url")
+def main() -> int:
+    args = parse_args()
+    root = Path(args.root).resolve()
+    target_yaml = root / "agentic-evals" / "targets" / args.target_id / "target.yaml"
+    if not target_yaml.exists():
+        raise SystemExit(f"missing target config: {target_yaml}")
 
     current_run_id = run_id()
     ab_run_dir = root / "agentic-evals" / "runs" / current_run_id
-    variant_source_root = Path(
-        tempfile.mkdtemp(prefix=f"openclaw-skill-eval-{args.target_id}-ab-")
-    )
+    variant_source_root = Path(tempfile.mkdtemp(prefix=f"openclaw-skill-eval-{args.target_id}-ab-"))
 
     case_root_a = variant_source_root / "case-workspaces" / args.label_a
     case_root_b = variant_source_root / "case-workspaces" / args.label_b
@@ -235,29 +187,20 @@ def init_ab_run(args: argparse.Namespace, root: Path) -> dict:
         "## Suggested Next Fixes\n",
         encoding="utf-8",
     )
-    return {
-        "run_mode": "ab-urls",
-        "run_id": current_run_id,
-        "run_dir": str(ab_run_dir),
-        "variant_source_root": str(variant_source_root),
-        "variant_a_run_dir": str(run_dir_a),
-        "variant_b_run_dir": str(run_dir_b),
-        "next_step": "Run the normal per-case evaluator flow in each variant run, then call render_ab_report.py on the parent run directory.",
-    }
-
-
-def main() -> int:
-    args = parse_args()
-    root = Path(args.root).resolve()
-    target_yaml = root / "agentic-evals" / "targets" / args.target_id / "target.yaml"
-    if not target_yaml.exists():
-        raise SystemExit(f"missing target config: {target_yaml}")
-
-    if args.mode == "single-run":
-        print(json.dumps(init_single_run(args, root), ensure_ascii=False))
-        return 0
-
-    print(json.dumps(init_ab_run(args, root), ensure_ascii=False))
+    print(
+        json.dumps(
+            {
+                "run_mode": "ab-urls",
+                "run_id": current_run_id,
+                "run_dir": str(ab_run_dir),
+                "variant_source_root": str(variant_source_root),
+                "variant_a_run_dir": str(run_dir_a),
+                "variant_b_run_dir": str(run_dir_b),
+                "next_step": "Run the normal per-case evaluator flow in each variant run, then call render_ab_report.py on the parent run directory.",
+            },
+            ensure_ascii=False,
+        )
+    )
     return 0
 
 
