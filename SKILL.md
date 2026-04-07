@@ -21,11 +21,11 @@ Do not replace execution with a static read-through when a fresh-agent run is po
 Use the docs in this order and keep their roles separate:
 
 - `agentic-evals/AGENT.md`: canonical repo contract for any evaluator agent. Read this first for run outputs, statuses, assertion semantics, isolation rules, and report shape.
-- `agentic-evals/docs/session-evidence.md`: required local evidence contract for locating child sessions and extracting evidence from `sessions/*.jsonl`.
+- `agentic-evals/docs/session-evidence.md`: required dual-mode evidence contract for locating child sessions in Codex or OpenClaw and extracting accepted session evidence.
 - `agentic-evals/targets/<target_id>/target.yaml`: target-specific contract, including entry skill, roots, default suites, and allowed statuses.
 - `agentic-evals/targets/<target_id>/suites/*.yaml`: selected runnable suite definitions.
 - `agentic-evals/targets/<target_id>/cases/*.yaml`: per-case prompts, setup, and assertions.
-- `skill-eval/SKILL.md`: how this evaluator skill acquires the repo, creates isolated workspaces, spawns fresh agents, locates child sessions, validates isolation, and writes the repo-defined artifacts.
+- `skill-eval/SKILL.md`: how this evaluator skill acquires the repo, creates isolated workspaces, chooses the active runtime, spawns fresh agents, locates child sessions, validates isolation, and writes the repo-defined artifacts.
 
 Do not duplicate repo contract rules from `AGENT.md` unless this skill needs an extra operational constraint.
 
@@ -61,10 +61,14 @@ For `ab-urls`, recommended variant URL formats are:
 - Read `agentic-evals/targets/<target_id>/target.yaml` before selecting cases.
 - Read the selected suite files and case files before executing cases.
 - Create one brand-new isolated workspace for every case attempt under a temp parent directory. Never execute a case in the user's main workspace.
-- Execute each case by running a fresh Codex sub-agent on the case prompt with `spawn_agent` and `fork_context: false`.
-- Do not use `codex exec`, terminal wrappers, or any other fallback executor for case execution.
-- If `spawn_agent` is unavailable or agent creation fails, stop the evaluation immediately and report the failure reason instead of continuing.
-- After each successful `spawn_agent`, immediately report the sub-agent nickname in the main thread so the user can find and open it in the Codex app. If no nickname is available, report the agent id.
+- Execute each case by running a fresh runtime-native sub-agent:
+  - Codex mode: `spawn_agent` with `fork_context: false`
+  - OpenClaw mode: `sessions_spawn`
+- Do not use terminal wrappers, detached fallback executors, or any other substitute for the runtime-native spawn flow.
+- If the runtime spawn tool is unavailable or agent creation fails, stop the evaluation immediately and report the failure reason instead of continuing.
+- After each successful spawn, immediately report the runtime-native child identifier:
+  - Codex mode: nickname when available, otherwise agent id
+  - OpenClaw mode: returned label when available, otherwise child session key
 - Send the case `input.user_prompt` to the fresh agent verbatim. Do not paraphrase the user request.
 - Do not leak the case title, assertions, expected route, intended answer, or your prior judgment into the fresh-agent prompt.
 - The fresh sub-agent is the execution subject, not the judge. Do not ask it to grade the case, interpret the assertions, or decide pass or fail.
@@ -124,6 +128,10 @@ runs/<run_id>/
 ```
 
 When writing `manifest.json`, include any environment notes this skill discovers while setting up isolated workspaces or locating accepted child sessions.
+Record `evidence_mode` according to the active runtime:
+
+- `codex-local-session-store`
+- `openclaw-session-history`
 
 For `ab-urls`, initialize the parent run with:
 
@@ -203,27 +211,33 @@ For every case:
 
 1. Create a fresh isolated workspace for that case attempt under `case_workspace_root`.
 2. Apply the case setup as far as the environment allows, but only inside that attempt workspace.
-3. Start a fresh sub-agent with `spawn_agent` and `fork_context: false`.
+3. Start a fresh sub-agent using the active runtime:
+   - Codex mode: `spawn_agent` with `fork_context: false`
+   - OpenClaw mode: `sessions_spawn`
 4. Give the fresh agent only the task-local context it needs:
    - workspace root
    - the case `input.user_prompt`
    - a requirement to answer naturally as if serving the user
-5. Capture the returned agent metadata when available, such as the agent id or nickname.
+5. Capture the returned runtime metadata when available, such as:
+   - Codex mode: agent id or nickname
+   - OpenClaw mode: child session key or label
 6. Do not tell the fresh agent which files it is expected to read.
 7. Do not tell the fresh agent what the correct answer should be.
 8. Wait for the fresh agent to finish.
-9. Locate the accepted child session JSONL from the local Codex session store.
+   - Codex mode: wait on the spawned agent completion
+   - OpenClaw mode: use `sessions_yield` when the runtime requires a multi-turn wait
+9. Locate the accepted child session from the active runtime evidence source.
    Preferred signals:
-   - child `session_meta.payload.source.subagent.thread_spawn.parent_thread_id`
+   - runtime-native spawn metadata
    - child start time relative to the case attempt
-   - returned nickname or agent id when available
-   - `~/.codex/state_5.sqlite` `thread_spawn_edges` as a locator or tie-breaker
+   - returned nickname, id, label, or child session key when available
+   - Codex mode only: `~/.codex/state_5.sqlite` `thread_spawn_edges` as a locator or tie-breaker
 10. If a single accepted child session cannot be identified, mark the case `blocked`.
-11. Copy the accepted child session to `case-artifacts/<case_id>/accepted-session.jsonl`.
+11. Copy or normalize the accepted child session to `case-artifacts/<case_id>/accepted-session.json`.
 12. Extract the accepted final answer and save it to `case-artifacts/<case_id>/final-answer.txt`.
 13. Validate observed isolation before judging:
    - treat per-tool `workdir` values, resolved read and write paths, and command-derived cwd outputs such as `pwd` as the authoritative isolation signals
-   - for Codex `spawn_agent`, treat child `session_meta.cwd` as advisory only, because spawned child-thread metadata may inherit the parent workspace cwd
+   - for both runtimes, treat child `session_meta.cwd` as advisory only, because spawned child-session metadata may inherit the parent workspace cwd
    - observed per-tool `workdir` values must be inside the attempt workspace
    - observed read and write paths must be inside the attempt workspace
    - if a command such as `pwd` prints a cwd, that observed cwd must be inside the attempt workspace
@@ -253,13 +267,13 @@ It does not replace the variant-level case judgments.
 Use a prompt equivalent to this shape:
 
 ```text
-You are a fresh Codex agent running in the workspace <workspace>.
+You are a fresh runtime sub-agent running in the workspace <workspace>.
 
 Task: answer this user request naturally, using the local workspace as needed:
 "<case input.user_prompt>"
 
 Requirements:
-- Work as a normal Codex agent would for a real user request.
+- Work as a normal runtime sub-agent would for a real user request.
 - Use the target skill docs if relevant.
 - Treat `<workspace>` as your only workspace for this task.
 - Start from `<workspace>` and keep all file reads, writes, and shell commands inside it.
@@ -289,23 +303,24 @@ Examples:
 - case says `docs_index_present: true`, but the real workspace is missing `references/docs.txt`
 - case setup would require mutating protected files that the evaluator cannot safely write
 
-### Step 5C: Local evidence prerequisites and failure handling
+### Step 5C: Runtime evidence prerequisites and failure handling
 
-The evaluator depends on local Codex evidence sources.
+The evaluator depends on runtime evidence sources.
 
 Required behavior:
 
-- the accepted child session exists under `~/.codex/sessions/`
+- the accepted child session can be retrieved from the active runtime
 - the evaluator can read that child session after completion
 - the session includes enough detail to judge observed commands, consultation, ordering, and the final answer
 
 Helpful but optional:
 
-- `~/.codex/state_5.sqlite` to locate and disambiguate child threads
+- Codex mode: `~/.codex/state_5.sqlite` to locate and disambiguate child threads
+- OpenClaw mode: returned child session key or label from `sessions_spawn`
 
 If any required source is missing:
 
-- mark the case `blocked` with `blocked_reason: "environment"` when the local evidence source is unavailable
+- mark the case `blocked` with `blocked_reason: "environment"` when the runtime evidence source is unavailable
 - mark the case `blocked` with `blocked_reason: "insufficient-evidence"` when only partial or coarse session data exists
 - do not fall back to fresh-agent self-reporting as substitute evidence
 
