@@ -6,7 +6,7 @@ suites, cases, assertions, and output format.
 
 If you only remember one thing, remember this:
 
-`agentic-evals` defines what to test, `skill-eval` runs the test, and a fresh Codex
+`agentic-evals` defines what to test, `skill-eval` runs the test, and a fresh runtime
 sub-agent is the thing being judged.
 
 ## Skill Repo Layout
@@ -48,7 +48,7 @@ In a normal run there are 4 separate roles:
    The evaluator skill that executes the repo-defined protocol.
 3. target skill
    The skill under test, for example `.agents/skills/<target-skill>/`.
-4. fresh Codex sub-agent
+4. fresh runtime sub-agent
    The execution subject that receives the case prompt and produces the trace and answer to judge.
 
 That separation matters:
@@ -72,7 +72,9 @@ Your workspace will normally look like this:
 
 ## Requirements
 
-- Codex with `spawn_agent` available
+- one supported runtime:
+  - Codex with `spawn_agent`
+  - OpenClaw with `sessions_spawn`, `sessions_history`, and `sessions_yield`
 - `git`
 - `bash`
 - local target skill files
@@ -80,7 +82,7 @@ Your workspace will normally look like this:
 
 ## Quickstart
 
-Once you have workspace prepared, ask Codex in plain language to use `skill-eval`. For example::
+Once you have workspace prepared, ask the runtime agent in plain language to use `skill-eval`. For example::
 
 Single case:
 
@@ -126,16 +128,16 @@ suite_id=convoai-api
 
 ## 5-Minute Mental Model
 
-When you ask Codex to run an eval, the expected flow is:
+When you ask the runtime agent to run an eval, the expected flow is:
 
-1. Codex uses `skill-eval`.
+1. The runtime agent uses `skill-eval`.
 2. `skill-eval` reads `agentic-evals/AGENT.md` and `agentic-evals/docs/session-evidence.md`.
 3. It resolves the target from `agentic-evals/targets/<target_id>/target.yaml`.
 4. It reads the selected suite and case files from `agentic-evals/targets/<target_id>/`.
 5. It creates a new run directory under `agentic-evals/runs/<run_id>/`.
 6. For each case, it creates a brand-new isolated temp workspace.
-7. It spawns a fresh sub-agent for that case.
-8. The evaluator copies the accepted child session and extracts the final user-facing answer.
+7. It spawns a fresh sub-agent for that case using the active runtime.
+8. The evaluator copies or normalizes the accepted child session and extracts the final user-facing answer.
 9. The evaluator validates isolation and judges the assertions from the accepted child session evidence.
 10. The evaluator writes final artifacts under `agentic-evals/runs/<run_id>/`.
 
@@ -148,7 +150,9 @@ During execution, the evaluator should:
 - report which target, suite, or case it is using
 - create a fresh case workspace under a temp directory
 - spawn a fresh sub-agent for the case
-- tell you the sub-agent nickname or id so you can open it in the Codex app
+- tell you the runtime-native child identifier:
+  - Codex mode: nickname or agent id
+  - OpenClaw mode: label or child session key
 - write artifacts under `agentic-evals/runs/<run_id>/`
 
 The evaluator should not:

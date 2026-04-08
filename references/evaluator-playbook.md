@@ -61,6 +61,8 @@ Call `sessions_spawn` with roughly:
 - `task: <spawned-subagent prompt>`
 - `timeoutSeconds`: set per suite size
 
+The spawned-subagent prompt should require consultation of the local target skill materials, not merely allow it. When the target skill instructions and relevant local reference docs exist inside the case workspace, require the child to consult them before answering.
+
 Record:
 
 - `childSessionKey`
