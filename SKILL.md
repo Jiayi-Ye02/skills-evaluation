@@ -218,6 +218,8 @@ For every case:
    - workspace root
    - the case `input.user_prompt`
    - a requirement to answer naturally as if serving the user
+   - a requirement to consult the local target skill instructions before answering
+   - a requirement to consult the relevant local target-skill reference docs before answering when those docs exist inside the workspace
 5. Capture the returned runtime metadata when available, such as:
    - Codex mode: agent id or nickname
    - OpenClaw mode: child session key or label
@@ -274,7 +276,9 @@ Task: answer this user request naturally, using the local workspace as needed:
 
 Requirements:
 - Work as a normal runtime sub-agent would for a real user request.
-- Use the target skill docs if relevant.
+- Use the local target skill docs for this task.
+- Consult the local target skill instructions before answering.
+- When relevant target-skill reference docs exist inside the workspace, consult them before answering instead of answering from prior knowledge alone.
 - Treat `<workspace>` as your only workspace for this task.
 - Start from `<workspace>` and keep all file reads, writes, and shell commands inside it.
 - If something you need is missing inside `<workspace>`, say so from that workspace instead of reaching outside it.
@@ -284,6 +288,7 @@ Requirements:
 
 Keep the prompt minimal.
 Do not include the case assertions in the fresh-agent prompt.
+Do not phrase the prompt as optional consultation such as "if relevant" when the target skill materials are present in the workspace.
 
 ### Step 5B: Environment mismatch handling
 
